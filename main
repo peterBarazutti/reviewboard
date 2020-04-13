@@ -1,29 +1,134 @@
-#!/home/peter/playground/reviewboard/rb_venv/bin/python3
+#!/usr/bin/env python3
 
 import tkinter as tk
+from tkinter.filedialog import askopenfilename
+import properties
+import typing
+from atlassian import Jira
 
-main = tk.Tk()
+class Reviewboard:
 
-# ------------------ GENERAL SETUP --------------------------
+    HEIGHT=600
+    WIDTH=1200
+    
+    main=tk.Tk()
+    jira=Jira(
+            url=properties.url,
+            username=properties.username,
+            password=properties.password
+        )
 
-main.geometry("500x200")
+    def __init__(self):
+        super().__init__()
+        #self.main = tk.Tk()
+        self.summary:str
+        self.description:str
+        self.selected_issue=None
+        self.selected_review_group = tk.StringVar()
+        self.included_files_list = []
 
-# transparency
-main.wait_visibility(main)
-main.wm_attributes('-alpha',0.9)
+    def get_open_issues(self):
+        open_task_JQL= 'assignee = %s AND status not in (Closed)' % (properties.username)
+        return self.jira.jql(open_task_JQL)
 
-# -----------------------------------------------------------
+    def init_gui(self):
+        geom = '{0}x{1}'.format(self.WIDTH, self.HEIGHT)
+        self.main.geometry(geom)
+        # transparency
+        self.main.wait_visibility(self.main)
+        self.main.wm_attributes('-alpha',0.9)
 
-label_comment=tk.Label(main, text="Comment: ")
-#label_comment.pack()
-label_comment.grid(row=0, column=0)
+#        canvas = tk.Canvas(self.main, height=self.HEIGHT, width=self.WIDTH, bg='grey')
+        canvas = tk.Canvas(self.main, bg='grey')
+        canvas.pack(fill="both", expand="true")
 
-entry_comment=tk.Entry(main, bd = 5)
-#entry_comment.pack()
-entry_comment.grid(row=0, column=1)
+        # frames
 
-button = tk.Button(main, text="Ok")
-button.grid(row=1, column=0)
-#button.pack()
+        frame_left = tk.Frame(self.main, bg='teal', bd=5)
+        frame_left.place(relx=0.02, rely=0.5, relwidth=0.3, relheight=0.97, anchor='w')
 
-main.mainloop()
+        frame_right = tk.Frame(self.main, bg='teal', bd=5)
+        frame_right.place(relx=0.35, rely=0.5, relwidth=0.63, relheight=0.97, anchor='w')
+
+        # open issues
+
+        listbox_task=tk.Listbox(frame_left)
+        self.data=self.get_open_issues()
+        for index, issue in enumerate(self.data['issues']):
+            listbox_task.insert(index, issue['key'])
+            print(issue['key'])
+        listbox_task.place(relx=0, rely=0.2, relwidth=1, relheight=0.6)
+
+        button_select_issue = tk.Button(frame_left, text="Select issue", 
+            command=lambda: self.select_issue(listbox_task.get(listbox_task.curselection())))
+        button_select_issue.pack(fill='both', expand=False, side=tk.BOTTOM)
+
+        # summary
+
+        label_summary = tk.Label(frame_right, text="Summary: ")
+        label_summary.grid(row=0, column=0)
+
+        self.text_summary = tk.Text(frame_right, height=1)
+        self.text_summary.grid(row=0, column=1)
+
+        # desciption
+
+        label_description = tk.Label(frame_right, text="Description: ")
+        label_description.grid(row=1, column=0)
+
+        self.text_description=tk.Text(frame_right, height=1)
+        self.text_description.grid(row=1, column=1)
+
+        # review_group
+
+        rb_rg1 = tk.Radiobutton(frame_right, text='KN', variable=self.selected_review_group, value="KN")
+        rb_rg1.grid(row=2, column=0)
+        rb_rg2 = tk.Radiobutton(frame_right, text='SZS', variable=self.selected_review_group, value="SZS")
+        rb_rg2.grid(row=2, column=1)
+        rb_rg3 = tk.Radiobutton(frame_right, text='EB', variable=self.selected_review_group, value="EB")
+        rb_rg3.grid(row=2, column=2)
+        rb_rg4 = tk.Radiobutton(frame_right, text='etc', variable=self.selected_review_group, value="etc")
+        rb_rg4.grid(row=2, column=3)
+
+        # include files
+
+        button_include_file = tk.Button(frame_right, text="Include file", command=lambda: self.include_file())
+        button_include_file.grid(row=3, column=0)
+
+        # request string preview
+
+        button_preview = tk.Button(frame_right, text="Review preview", command=lambda: self.create_review_req_text())
+        button_preview.grid(row=5, column=1)
+
+        self.text_request_preview = tk.Text(frame_right, height=5, wrap=tk.WORD)
+        self.text_request_preview.grid(row=6, column=1)
+
+    def include_file(self):
+        filename = askopenfilename(initialdir=properties.basedir)
+        self.included_files_list.append(filename)
+
+    def select_issue(self, selected_issue_key):
+        self.text_summary.delete(1.0, tk.END)
+        for issue in self.data['issues']:
+            if issue['key'] == selected_issue_key:
+                self.selected_issue = issue
+                self.text_summary.insert(tk.END, self.summary)
+
+    def create_review_req_text(self):
+        rev_req_text = 'rbt post -p -o --summary \"{0}\" --desciption \"{1}\" --bugs-closed \"{2}\" --target-groups {3} {4}' \
+        .format(
+            self.selected_issue['fields']['summary'],
+            self.text_description.get("1.0").rstrip(), 
+            self.selected_issue['key'], 
+            self.selected_review_group.get(),
+            self.concat_selected_files())
+        self.text_request_preview.insert(tk.END, rev_req_text)
+
+    def concat_selected_files(self):
+        return ' '.join(['-I %s' % filepath for filepath in self.included_files_list])
+
+if __name__ == '__main__':
+    rb = Reviewboard()
+    rb.init_gui()
+    rb.main.mainloop()
+
